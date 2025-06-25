@@ -18,7 +18,7 @@ def get_extensions():
             ],
             extra_link_args=['-O2'],
             define_macros=[
-                ('NPY_NO_DEPRECATED_API'),
+                ('NPY_NO_DEPRECATED_API',),
             ]
         )
     ]
