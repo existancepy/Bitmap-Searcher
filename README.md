@@ -5,7 +5,7 @@ This package was designed for my [Bee Swarm Macro](https://github.com/existancep
 Note: You are expected to build the binaries
 
 # Build instructions
-Supported python versions: 3.7, 3.8, 3.9
+Supported python versions: 3.7 and above
 Supported OS: Windows, Mac, Linux
 
 ### Download the source code
@@ -20,7 +20,6 @@ python build_universal.py --install-deps
 ```console
 python build_universal.py
 ```
-*The script will try to build for all supported python versions. You can ignore the versions you do not want to build*  
 
 After the build is complete, you can find all the binaries in the /dist folder
 

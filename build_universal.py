@@ -1,4 +1,8 @@
-#script to build for multiple architectures and Python versions
+#!/usr/bin/env python3
+"""
+Script to build for multiple architectures and Python versions.
+Automatically detects the Python version being used to run this script.
+"""
 import subprocess
 import sys
 import os
@@ -6,32 +10,13 @@ import platform
 import shutil
 from pathlib import Path
 
-#supported python versions
-PYTHON_VERSIONS = ['3.7', '3.8', '3.9']
+def get_current_python_version():
+    """Get the current Python version (e.g., '3.9', '3.8')."""
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
 
-def find_python_executable(version):
-    """Find Python executable for given version."""
-    possible_names = [
-        f'python{version}',
-        f'python{version.replace(".", "")}',
-        f'py -{version}',  #for windows
-    ]
-    
-    for name in possible_names:
-        try:
-            #test if this python exists and is correct version
-            result = subprocess.run(
-                [name, '--version'], 
-                capture_output=True, 
-                text=True, 
-                check=True
-            )
-            if version in result.stdout:
-                return name
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            continue
-    
-    return None
+def get_current_python_executable():
+    """Get the current Python executable path."""
+    return sys.executable
 
 def build_for_python_version(python_exe, version, arch=None):
     """Build for specific Python version and architecture."""
@@ -66,13 +51,38 @@ def build_for_python_version(python_exe, version, arch=None):
         output_dir = Path('dist')
         output_dir.mkdir(parents=True, exist_ok=True)
         
+        #only copy extensions that match the current Python version
+        version_tag = f"cpython-{version.replace('.', '')}"
+        matching_extensions = []
+        
         for ext_file in Path('.').glob('bitmap_matcher*.so'):
+            if version_tag in ext_file.name:
+                matching_extensions.append(ext_file)
+        
+        if not matching_extensions:
+            print(f"Warning: No extensions found for Python {version}")
+            return False
+        
+        for ext_file in matching_extensions:
             if arch:
                 dest_name = f'bitmap_matcher_py{version.replace(".", "")}_{arch}.so'
             else:
-                dest_name = ext_file.name
-            shutil.copy2(ext_file, output_dir / dest_name)
-            print(f"Copied {ext_file} to {output_dir / dest_name}")
+                dest_name = f'bitmap_matcher_py{version.replace(".", "")}.so'
+            
+            dest_path = output_dir / dest_name
+            shutil.copy2(ext_file, dest_path)
+            print(f"Copied {ext_file} to {dest_path}")
+            
+            #verify the extension can be loaded
+            try:
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("test_module", dest_path)
+                if spec and spec.loader:
+                    print(f"Extension {dest_name} appears to be loadable")
+                else:
+                    print(f"Extension {dest_name} may have issues")
+            except Exception as e:
+                print(f"Could not verify extension {dest_name}: {e}")
         
         return True
         
@@ -82,7 +92,7 @@ def build_for_python_version(python_exe, version, arch=None):
         return False
 
 def check_dependencies(python_exe):
-    """Check if required dependencies are installed for given Python."""
+    #check if required dependencies are installed for given Python.
     required_packages = ['setuptools', 'cython', 'numpy']
     
     for package in required_packages:
@@ -99,11 +109,14 @@ def check_dependencies(python_exe):
     
     return True
 
-def build_for_all_versions():
-    """Build for all supported Python versions."""
+def build_for_current_python():
+    #build for the current Python version only
+    current_version = get_current_python_version()
+    current_python = get_current_python_executable()
     current_arch = platform.machine()
+    
+    print(f"Detected Python {current_version} at: {current_python}")
     print(f"Current architecture: {current_arch}")
-    print(f"Target Python versions: {', '.join(PYTHON_VERSIONS)}")
     print("-" * 50)
     
     successful_builds = []
@@ -113,40 +126,31 @@ def build_for_all_versions():
     if Path('dist').exists():
         shutil.rmtree('dist')
     
-    for version in PYTHON_VERSIONS:
-        python_exe = find_python_executable(version)
-        
-        if not python_exe:
-            print(f"✗ Python {version} not found")
-            failed_builds.append(f"Python {version} (not found)")
-            continue
-        
-        print(f"Found Python {version}: {python_exe}")
-        
-        #check dependencies
-        if not check_dependencies(python_exe):
-            failed_builds.append(f"Python {version} (missing dependencies)")
-            continue
-        
-        #build for current architecture
-        if build_for_python_version(python_exe, version, current_arch):
-            successful_builds.append(f"Python {version} ({current_arch})")
-        else:
-            failed_builds.append(f"Python {version} ({current_arch})")
-        
-        #on macOS, try to build for other architecture too
-        if platform.system() == 'Darwin':
-            other_arch = 'x86_64' if current_arch == 'arm64' else 'arm64'
-            print(f"Attempting cross-compilation for {other_arch}...")
-            
-            if build_for_python_version(python_exe, version, other_arch):
-                successful_builds.append(f"Python {version} ({other_arch})")
-            else:
-                print(f"Cross-compilation for {other_arch} failed (this is normal)")
-        
-        print()
+    #check dependencies
+    if not check_dependencies(current_python):
+        print(f"✗ Missing dependencies for Python {current_version}")
+        print("Install dependencies with: python -m pip install setuptools cython numpy")
+        return
     
-    #summary
+    #build for current architecture
+    if build_for_python_version(current_python, current_version, current_arch):
+        successful_builds.append(f"Python {current_version} ({current_arch})")
+    else:
+        failed_builds.append(f"Python {current_version} ({current_arch})")
+    
+    #on macOS, try to build for other architecture too
+    if platform.system() == 'Darwin':
+        other_arch = 'x86_64' if current_arch == 'arm64' else 'arm64'
+        print(f"Attempting cross-compilation for {other_arch}...")
+        
+        if build_for_python_version(current_python, current_version, other_arch):
+            successful_builds.append(f"Python {current_version} ({other_arch})")
+        else:
+            print(f"Cross-compilation for {other_arch} failed (this is normal)")
+    
+    print()
+    
+    # Summary
     print("=" * 50)
     print("BUILD SUMMARY")
     print("=" * 50)
@@ -154,56 +158,57 @@ def build_for_all_versions():
     if successful_builds:
         print("Successful builds:")
         for build in successful_builds:
-            print(f"  - {build}")
+            print(f"  {build}")
     
     if failed_builds:
         print("\nFailed builds:")
         for build in failed_builds:
-            print(f"  - {build}")
+            print(f"  {build}")
     
     print(f"\nTotal: {len(successful_builds)} successful, {len(failed_builds)} failed")
 
 def install_dependencies():
-    """Install dependencies for all Python versions."""
-    print("Installing dependencies for all Python versions...")
+    """Install dependencies for current Python version."""
+    current_python = get_current_python_executable()
+    current_version = get_current_python_version()
     
-    for version in PYTHON_VERSIONS:
-        python_exe = find_python_executable(version)
-        if python_exe:
-            print(f"Installing for Python {version}...")
-            try:
-                subprocess.run([
-                    python_exe, '-m', 'pip', 'install', 
-                    'setuptools', 'cython', 'numpy'
-                ], check=True)
-                print(f"✓ Dependencies installed for Python {version}")
-            except subprocess.CalledProcessError as e:
-                print(f"✗ Failed to install dependencies for Python {version}: {e}")
-        else:
-            print(f"Python {version} not found")
+    print(f"Installing dependencies for Python {current_version}...")
+    
+    try:
+        subprocess.run([
+            current_python, '-m', 'pip', 'install', 
+            'setuptools', 'cython', 'numpy'
+        ], check=True)
+        print(f"Dependencies installed for Python {current_version}")
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to install dependencies for Python {current_version}: {e}")
 
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description='Build bitmap_matcher for multiple Python versions')
+    parser = argparse.ArgumentParser(
+        description='Build bitmap_matcher for the current Python version',
+        epilog='Example usage:\n'
+               '  python3.9 build_script.py          # Build for Python 3.9\n'
+               '  python3.11 build_script.py         # Build for Python 3.11\n'
+               '  python3.8 build_script.py --install-deps  # Install deps for Python 3.8',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument('--install-deps', action='store_true', 
-                       help='Install dependencies for all Python versions')
-    parser.add_argument('--python-version', 
-                       help='Build for specific Python version only')
+                       help='Install dependencies for current Python version')
+    parser.add_argument('--show-info', action='store_true',
+                       help='Show current Python version and exit')
     
     args = parser.parse_args()
     
-    if args.install_deps:
+    if args.show_info:
+        current_version = get_current_python_version()
+        current_python = get_current_python_executable()
+        print(f"Current Python version: {current_version}")
+        print(f"Current Python executable: {current_python}")
+        print(f"Current architecture: {platform.machine()}")
+        print(f"Current platform: {platform.system()}")
+    elif args.install_deps:
         install_dependencies()
-    elif args.python_version:
-        if args.python_version in PYTHON_VERSIONS:
-            python_exe = find_python_executable(args.python_version)
-            if python_exe and check_dependencies(python_exe):
-                build_for_python_version(python_exe, args.python_version, platform.machine())
-            else:
-                print(f"Python {args.python_version} not available or missing dependencies")
-        else:
-            print(f"Unsupported Python version: {args.python_version}")
-            print(f"Supported versions: {', '.join(PYTHON_VERSIONS)}")
     else:
-        build_for_all_versions()
+        build_for_current_python()
