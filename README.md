@@ -5,7 +5,7 @@ This package was designed for my [Bee Swarm Macro](https://github.com/existancep
 Note: You are expected to build the binaries
 
 # Build instructions
-Supported python versions: 3.7 and above
+Supported python versions: 3.7 and above<br>
 Supported OS: Windows, Mac, Linux
 
 ### Download the source code
